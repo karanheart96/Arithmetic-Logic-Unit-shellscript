@@ -1,0 +1,620 @@
+#!/bin/sh
+##
+# This script implements the arithmetic logic unit (ALU)
+# for word-oriented arithmetic and logic operations
+
+# directory of this script
+dir="$(dirname $0)"
+
+# include word definitions
+source "$dir/worddefs"
+
+##
+# calls 'word' command on same path as this script
+word() { echo $($dir/word $*); }
+
+##
+# Output usage message to standard error
+usage() {
+    echo "usage: $(basename $0) [op word ...]" 1>&2
+    echo "word is a ${wordsize}-bit word, or a unsigned hex (0x1A2F) or decimal number" 1>&2
+}
+
+##
+# Difference of two word operands.
+# @param the first opearand
+# @param the second operand
+# @return the difference
+sub() {
+    local carry=1
+    local result=$zeroword
+    for ((b=0; b <= $wordtopbit; b++)); do
+        local t=$(( $(word $1 $b) + $(notBit $(word $2 $b)) + carry))
+        carry=$((t>>1)) # bit 1 is carry bit
+        result=$(word $result $b $t) # word uses only lower bit of t
+    done
+    echo $result
+}
+##
+#Logical OR of two word operands.
+# @param the first opearand
+# @param the second operand
+# @return the result
+
+or() {
+local result=$zeroword
+for((b=0;b<=$wordtopbit;b++));do
+   local t1=$(word $1 $b)
+   local t2=$(word $2 $b)
+   local t=$(($t1 | $t2))
+    result=$(word $result $b $t)
+done
+echo $result
+}
+
+##
+#Logical AND of two word operands.
+# @param the first opearand
+# @param the second operand
+# @return the result
+
+and() {
+local result=$zeroword
+for((b=0;b<=$wordtopbit;b++));do
+local t1=$(word $1 $b)
+local t2=$(word $2 $b)
+local t=$(($t1 & $t2))
+result=$(word $result $b $t)
+done
+echo $result
+}
+
+##
+#Logical XOR of two word operands.
+# @param the first opearand
+# @param the second operand
+# @return the result
+
+xor() {
+local result=$zeroword
+for((b=0;b<=$wordtopbit;b++));do
+local t1=$(word $1 $b)
+local t2=$(word $2 $b)
+local t=$(($t1 ^ $t2))
+result=$(word $result $b $t)
+done
+echo $result
+}
+
+# Returns true if word is less than zero.
+
+testlt() {
+local t
+t=$(word $1 $wordtopbit)
+if [ $t -eq 1 ]; then
+    echo 1
+else
+    echo 0
+fi
+}
+
+# Returns true if word is greater than zero.
+
+testge() {
+local t
+t=$(word $1 $wordtopbit)
+if [ $t -eq 0 ]; then
+echo 1
+else
+echo 0
+fi
+}
+
+# Returns true if word is equal to zero.
+
+testeq() {
+local sum=0
+for((b=0;b<=wordtopbit;b++));do
+local t=$(word $1 $b)
+if [ $t -eq 1 ]; then
+    sum=1
+    break
+fi
+done
+if [ $sum -eq 0 ]; then
+    echo 1
+else
+    echo 0
+fi
+}
+
+#Logical NOT of word operand.
+
+not() {
+local result=$zeroword
+for((b=0;b<=wordtopbit;b++));do
+local t=$(notBit $(word $1 $b))
+result=$(word $result $b $t)
+done
+echo $result
+}
+
+#Negative of word operand.
+
+minus() {
+local result=$zeroword
+local carry=1
+for((b=0;b<=wordtopbit;b++));do
+local r=$(($(notBit $(word $1 $b)) + carry))
+carry=$((r>>1))
+local d=$(($r & 1))
+result=$(word $result $b $d)
+done
+echo $result
+}
+
+##
+#Sum of two word operands.
+# @param the first opearand
+# @param the second operand
+# @return the result
+
+add() {
+local carry=0
+local pos1=0
+local pos2=0
+local t1
+local t2
+local sum=0
+local result=$zeroword
+for((b=0;b<=$wordtopbit;b++));do
+t1=$(word $1 $b)
+t2=$(word $2 $b)
+if [ $t1 -eq 1 ]; then
+    pos1=1
+else
+    pos1=0
+fi
+if [ $t2 -eq 1 ]; then
+    pos2=1
+else
+    pos2=0
+fi
+sum=$(($pos1+$pos2+$carry))
+if [ $sum -eq 0 ]; then
+    result=$(word $result $b $sum)
+    carry=0
+elif [ $sum -eq 1 ]; then
+    result=$(word $result $b $sum)
+    carry=0
+elif [ $sum -eq 2 ]; then
+    result=$(word $result $b 0)
+    carry=1
+elif [ $sum -eq 3 ]; then
+    result=$(word $result $b 1)
+    carry=1
+fi
+done
+echo $result
+}
+
+##
+#Logical shift word by count. Shifts bits in word
+#left (+) or right (-) by the specified count. Shifts
+#bits off end and fills in with 0 in either direction.
+#@param op the operand
+#@param count the shift count
+
+lsh() {
+local c
+local result=$zeroword
+if [ $2 -lt 0 ]; then
+c=$(($2*-1))
+else
+c=$2
+fi
+if [ $c -gt $wordsize ];then
+c=$wordsize
+fi
+local localword=$1
+if [ $2 -gt 0 ]; then
+local d=$(($wordtopbit-$c))
+for((b=0;b<=$d;b++));do
+local m=$(word $localword $b)
+local p=$(($b + $c))
+result=$(word $result $p $m)
+done
+for((b=0;b<$c;b++));do
+result=$(word $result $b 0)
+done
+else
+for((b=$wordtopbit;b>=$c;b--));do
+local m=$(word $localword $b)
+local p=$(($b-$c))
+result=$(word $result $p $m)
+done
+local j=$(($wordtopbit-$c))
+for((b=$wordtopbit;b>$j;b--));do
+result=$(word $result $b 0)
+done
+fi
+echo $result
+
+}
+
+##
+#Arithmetic shift word by count. Same as multiplying or
+#dividing by power of 2.  Shifts bits in word left (+) or
+#right (-) by the specified count. Fills in with 0 from
+#the right, and the sign bit from the left.
+#@param op the operand
+#@param count the shift count
+
+ash() {
+local c
+local result=$zeroword
+if [ $2 -lt 0 ]; then
+c=$(($2*-1))
+else
+c=$2
+fi
+if [ $c -gt $wordsize ];then
+c=$wordsize
+fi
+local localop=$1
+local sign=$(word $localop $wordtopbit)
+if [ $2 -lt 0 ]; then
+count=$(($wordtopbit -1))
+for((b=$count;b>=$c;b--));do
+local t=$(word $localop $b)
+local g=$(($b-$c))
+result=$(word $result $g $t)
+done
+for((b=$c;b>=1;b--));do
+local r=$(($wordtopbit-$b))
+result=$(word $result $r $sign)
+done
+else
+local t4=$(($wordtopbit - 1))
+for((b=$t4;b>=$c;b--));do
+local p=$(($b-$c))
+local t=$(word $localop $p)
+result=$(word $result $b $t)
+done
+local x=$(($c - 1))
+for((b=$x;b>=0;b--));do
+result=$(word $result $b 0)
+done
+fi
+result=$(word $result $wordtopbit $sign)
+echo $result
+}
+
+##
+#Mask all but lower (+) or upper (-) count bits
+#of word operand.
+#@param result the result
+#@param op the operand
+#@param count the mask count
+
+mask() {
+local c
+local result=$zeroword
+if [ $2 -lt 0 ]; then
+    c=$(($2*-1))
+else
+    c=$2
+fi
+if [ $c -gt $wordsize ];then
+    c=$(($wordsize))
+fi
+if [ $2 -gt 0 ]; then
+for((b=0;b<$c;b++));do
+    local t=$(word $1 $b)
+    result=$(word $result $b $t)
+done
+for((b=$c;b<=$wordtopbit;b++));do
+    result=$(word $result $b 0)
+done
+else
+local d=$(($wordtopbit - $c))
+for((b=$d;b<=$wordtopbit;b++));do
+    local t=$(word $1 $b)
+    result=$(word $result $b $t)
+done
+for((b=0;b<=$d;b++));do
+    result=$(word $result $b 0)
+done
+fi
+if [ $2 -eq 0 ];then
+for((b=0;b<=wordtopbit;b++));do
+    local t=$(word $1 $b)
+    result=$(word $result $b $t)
+done
+fi
+echo $result
+}
+
+##
+#Circular shift word by count. Shifts bits in word
+#left (+) or right (-) by the specified count. Bits
+#shifted off either end of word are rotated in to
+#the other end of word.
+#@param op the operand
+#@param count the shift count
+
+csh() {
+local c
+local result=$zeroword
+if [ $2 -lt 0 ]; then
+c=$(($2*-1))
+else
+c=$(($2))
+fi
+if [ $c -gt $wordsize ];then
+c=$wordsize
+fi
+local localop=$1
+local j=$(($c - 1))
+if [ $2 -gt 0 ]; then
+local d=$(($wordtopbit-$c))
+for((b=$d;b>=0;b--));do
+local t=$(word $localop $b)
+local e=$(($b+$c))
+result=$(word $result $e $t)
+done
+for((b=$wordtopbit;b>$d;b--));do
+local t=$(word $localop $b)
+result=$(word $result $j $t)
+j=$(($j - 1))
+done
+else
+for((b=$wordtopbit;b>=$c;b--));do
+local t=$(word $localop $b)
+local f=$(($b - $c))
+result=$(word $result $f $t)
+done
+for((b=0;b<$c;b++));do
+local t=$(word $localop $b)
+local f=$(($wordtopbit-$c + $b + 1))
+result=$(word $result $f $t)
+done
+fi
+echo $result
+}
+
+##
+#Quotient of two word operands also returning remainder.
+# The sign of the quotient is positive if the signs of
+# the operands match, and negative if they do not.
+# The sign of the remainder matches the sign of the dividend.
+#
+# @param result the result
+# @param op1 the first operand
+# @param op2 the second operand
+divword() {
+local result=$zeroword
+local remainder=$zeroword
+local t=$(testeq $2)
+if [ $t -eq 1 ];then
+local t1=$(testge $1)
+if [ $t1 -eq 1 ];then
+result=$maxword
+else
+result=$minword
+fi
+else
+local w1=$zeroword
+local w2=$zeroword
+local resultNegative=0
+local t2=$(testlt $1)
+if [ $t2 -eq 1 ];then
+w1=$(minus $1)
+if [ $resultNegative -eq 1 ];then
+resultNegative=0
+else
+resultNegative=1
+fi
+else
+w1=$1
+fi
+local t3=$(testlt $2)
+if [ $t3 -eq 1 ];then
+w2=$(minus $2)
+if [ $resultNegative -eq 1 ];then
+resultNegative=0
+else
+resultNegative=1
+fi
+else
+w2=$2
+fi
+for((b=$wordtopbit;b>=0;b--));do
+result=$(lsh $result 1)
+remainder=$(lsh $remainder 1)
+local t4=$(word $w1 $b)
+remainder=$(word $remainder 0 $t4)
+local test
+test=$(sub $remainder $w2)
+local t5=$(testge $test)
+if [ $t5 -eq 1 ];then
+result=$(word $result 0 1)
+remainder=$test
+fi
+done
+if [ $resultNegative -eq 1 ];then
+result=$(minus $result)
+fi
+local t6=$(testlt $1)
+if [ $t6 -eq 1 ];then
+remainder=$(minus $remainder)
+fi
+fi
+echo $result
+}
+
+##
+#Product of two word operands.
+#
+# @param result the result
+# @param op1 the first operand
+# @param op2 the second operand
+
+mul() {
+local mul=$zeroword
+local mul1=$zeroword
+local cp1=$zeroword
+local cp2=$zeroword
+local result=$zeroword
+local t=$(testlt $2)
+if [ $t -eq 1 ];then
+cp1=$(minus $1)
+cp2=$(minus $2)
+else
+for((b=0;b<=$wordtopbit;b++));do
+local t1=$(word $1 $b)
+cp1=$(word $cp1 $b $t1)
+local t2=$(word $2 $b)
+cp2=$(word $cp2 $b $t2)
+done
+fi
+for((b=0;b<=$wordtopbit;b++));do
+local d1=$(word $cp2 $b)
+for((c=0;c<=$wordtopbit;c++));do
+local d2=$(word $cp1 $c)
+local d=$(($d1 & $d2))
+mul=$(word $mul $c $d)
+done
+mul1=$(lsh $mul $b)
+result=$(add $result $mul1)
+done
+echo $result
+}
+
+##
+#Remainder of two word operands also returning remainder.
+# The sign of the remainder is positive if the signs of
+# the operands match, and negative if they do not.
+#
+# @param result the result
+# @param op1 the first operand
+# @param op2 the second operand
+rmdr() {
+local result=$zeroword
+local remainder=$zeroword
+local t=$(testeq $2)
+if [ $t -eq 1 ];then
+local t1=$(testge $1)
+if [ $t1 -eq 1 ];then
+result=$maxword
+else
+result=$minword
+fi
+else
+local w1=$zeroword
+local w2=$zeroword
+local resultNegative=0
+local t2=$(testlt $1)
+if [ $t2 -eq 1 ];then
+w1=$(minus $1)
+if [ $resultNegative -eq 1 ];then
+resultNegative=0
+else
+resultNegative=1
+fi
+else
+w1=$1
+fi
+local t3=$(testlt $2)
+if [ $t3 -eq 1 ];then
+w2=$(minus $2)
+if [ $resultNegative -eq 1 ];then
+resultNegative=0
+else
+resultNegative=1
+fi
+else
+w2=$2
+fi
+for((b=$wordtopbit;b>=0;b--));do
+result=$(lsh $result 1)
+remainder=$(lsh $remainder 1)
+local t4=$(word $w1 $b)
+remainder=$(word $remainder 0 $t4)
+local test
+test=$(sub $remainder $w2)
+local t5=$(testge $test)
+if [ $t5 -eq 1 ];then
+result=$(word $result 0 1)
+remainder=$test
+fi
+done
+if [ $resultNegative -eq 1 ];then
+result=$(minus $result)
+fi
+local t6=$(testlt $1)
+if [ $t6 -eq 1 ];then
+remainder=$(minus $remainder)
+fi
+fi
+echo $remainder
+
+}
+
+# dispatch message to alu function
+case $1 in
+sub)
+echo $(sub $2 $3)
+;;
+or)
+echo $(or $2 $3)
+;;
+and)
+echo $(and $2 $3)
+;;
+xor)
+echo $(xor $2 $3)
+;;
+testlt)
+echo $(testlt $2)
+;;
+testge)
+echo $(testge $2)
+;;
+testeq)
+echo $(testeq $2)
+;;
+not)
+echo $(not $2)
+;;
+minus)
+echo $(minus $2)
+;;
+add)
+echo $(add $2 $3)
+;;
+csh)
+echo $(csh $2 $3)
+;;
+lsh)
+echo $(lsh $2 $3)
+;;
+ash)
+echo $(ash $2 $3)
+;;
+mask)
+echo $(mask $2 $3)
+;;
+div)
+echo $(divword $2 $3)
+;;
+mul)
+echo $(mul $2 $3)
+;;
+rmdr)
+echo $(rmdr $2 $3)
+;;
+*)
+usage
+;;
+esac
